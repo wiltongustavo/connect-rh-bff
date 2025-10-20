@@ -12,7 +12,7 @@ import java.util.Set;
  */
 @Data
 public class CoreAuthResponse {
-    private Long id; // ID do usuário (usado no AuthController como .getId() para gerar o JWT)
+    private Long userId; // ID do usuário (usado no AuthController como .getId() para gerar o JWT)
     private String name;
     private String email;
     private Set<String> roles; // Roles (ADMIN, MANAGER, EMPLOYEE)

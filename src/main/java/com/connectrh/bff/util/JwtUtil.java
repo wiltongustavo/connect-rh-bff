@@ -49,7 +49,7 @@ public class JwtUtil {
         claims.put("roles", rolesList);
 
         // 2. Adicionar o ID do usuário (subject) e o nome
-        String subject = userResponse.getId().toString();
+        String subject = userResponse.getUserId().toString();
         claims.put("name", userResponse.getName());
 
         return Jwts.builder()

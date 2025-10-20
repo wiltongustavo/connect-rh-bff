@@ -61,6 +61,7 @@ public class AuthController {
         AuthResponse authResponse = new AuthResponse();
         authResponse.setToken(token);
         authResponse.setEmail(coreResponse.getEmail());
+        authResponse.setUserId(coreResponse.getUserId());
         authResponse.setName(coreResponse.getName());
         authResponse.setRoles(coreResponse.getRoles());
 

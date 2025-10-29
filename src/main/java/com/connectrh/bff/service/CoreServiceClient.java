@@ -1,7 +1,9 @@
 package com.connectrh.bff.service;
 
+import com.connectrh.bff.dto.request.CreateUserRequest;
 import com.connectrh.bff.dto.request.LoginRequest;
 import com.connectrh.bff.dto.response.CoreAuthResponse;
+import com.connectrh.bff.dto.response.UserCreateResponse;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -66,6 +68,42 @@ public class CoreServiceClient { // Nome da classe ajustado
                     }
                     // Trata outros erros de comunicação/servidor (5xx)
                     System.err.println("Erro ao chamar Core Service: " + e.getMessage());
+                    return Mono.error(new RuntimeException("Erro interno de comunicação com Core Service. Status: " + e.getStatusCode()));
+                });
+    }
+
+    public Mono<UserCreateResponse> internalCreateUser(CreateUserRequest request) {
+        return coreWebClient.post()
+                // Endpoint do Core para cadastro
+                .uri("/api/v1/internal/auth/signup")
+                .bodyValue(request)
+                .retrieve()
+
+                // 1. Tratamento específico para 404 (Endpoint não encontrado no Core)
+                .onStatus(HttpStatus.NOT_FOUND::equals,
+                        response -> Mono.error(new RuntimeException("Core Service URL Not Found (404). Endpoint /signup não encontrado.")))
+
+                // 2. Tratamento do erro 400 (Bad Request) - E-mail duplicado, por exemplo
+                // O Core lança 400 com a mensagem de erro (do IllegalArgumentException)
+                .onStatus(HttpStatus.BAD_REQUEST::equals,
+                        response -> response.bodyToMono(String.class) // Tenta pegar a mensagem de erro do body
+                                .flatMap(errorMessage -> Mono.error(new WebClientResponseException(
+                                        HttpStatus.BAD_REQUEST.value(),
+                                        errorMessage, // Usa a mensagem de erro do Core (ex: "Email já cadastrado")
+                                        response.headers().asHttpHeaders(),
+                                        null,
+                                        null))))
+
+                // 3. Conversão para o DTO de Resposta (esperamos 201 Created)
+                .bodyToMono(UserCreateResponse.class)
+
+                // 4. Tratamento de outros erros de comunicação (5xx)
+                .onErrorResume(WebClientResponseException.class, e -> {
+                    // Propaga erros de Bad Request ou Not Found, ou lança erro genérico para outros 5xx
+                    if (e.getStatusCode() == HttpStatus.BAD_REQUEST || e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                        return Mono.error(e); // Propaga o erro do Core
+                    }
+                    System.err.println("Erro ao chamar Core Service (Signup): " + e.getMessage());
                     return Mono.error(new RuntimeException("Erro interno de comunicação com Core Service. Status: " + e.getStatusCode()));
                 });
     }

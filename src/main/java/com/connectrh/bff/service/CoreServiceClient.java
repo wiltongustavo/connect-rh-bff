@@ -2,7 +2,11 @@ package com.connectrh.bff.service;
 
 import com.connectrh.bff.dto.request.CreateUserRequest;
 import com.connectrh.bff.dto.request.LoginRequest;
+import com.connectrh.bff.dto.request.PasswordResetRequestDTO;
+import com.connectrh.bff.dto.request.PasswordTokenResetRequestDTO;
 import com.connectrh.bff.dto.response.CoreAuthResponse;
+import com.connectrh.bff.dto.response.PasswordResetResponseDTO;
+import com.connectrh.bff.dto.response.PasswordTokenResetResponseDTO;
 import com.connectrh.bff.dto.response.UserCreateResponse;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -13,13 +17,16 @@ import reactor.core.publisher.Mono;
 
 /**
  * Cliente de serviço para comunicação com o Connect RH Core Service.
- * Responsável por rotear chamadas do BFF para o Core, incluindo a chave de API interna.
- * (O nome da classe foi alterado para CoreServiceClient para seguir a nomenclatura de serviço HTTP).
+ * Responsável por rotear chamadas do BFF para o Core, incluindo a chave de API
+ * interna.
+ * (O nome da classe foi alterado para CoreServiceClient para seguir a
+ * nomenclatura de serviço HTTP).
  */
 @Service
 public class CoreServiceClient { // Nome da classe ajustado
 
-    // O WebClient injetado já tem a baseUrl (http://localhost:8080) e o Header de API Key
+    // O WebClient injetado já tem a baseUrl (http://localhost:8080) e o Header de
+    // API Key
     private final WebClient coreWebClient;
 
     /**
@@ -40,7 +47,8 @@ public class CoreServiceClient { // Nome da classe ajustado
      */
     public Mono<CoreAuthResponse> internalLogin(LoginRequest request) {
         return coreWebClient.post()
-                // Endpoint completo, já que a baseUrl do WebClient é apenas http://localhost:8080
+                // Endpoint completo, já que a baseUrl do WebClient é apenas
+                // http://localhost:8080
                 .uri("/api/v1/internal/auth/login")
                 .bodyValue(request) // Método moderno do WebClient
                 .retrieve()
@@ -48,7 +56,8 @@ public class CoreServiceClient { // Nome da classe ajustado
                 // Mapeamento de erros
                 // 1. Tratamento específico para 404 (Not Found) - Mapeamento errado no Core
                 .onStatus(HttpStatus.NOT_FOUND::equals,
-                        response -> Mono.error(new RuntimeException("Core Service URL Not Found (404). Verifique o @RequestMapping no Core: /api/v1/internal/auth/login")))
+                        response -> Mono.error(new RuntimeException(
+                                "Core Service URL Not Found (404). Verifique o @RequestMapping no Core: /api/v1/internal/auth/login")))
 
                 // 2. Tratamento do erro 401 (Unauthorized)
                 .onStatus(HttpStatus.UNAUTHORIZED::equals,
@@ -68,7 +77,8 @@ public class CoreServiceClient { // Nome da classe ajustado
                     }
                     // Trata outros erros de comunicação/servidor (5xx)
                     System.err.println("Erro ao chamar Core Service: " + e.getMessage());
-                    return Mono.error(new RuntimeException("Erro interno de comunicação com Core Service. Status: " + e.getStatusCode()));
+                    return Mono.error(new RuntimeException(
+                            "Erro interno de comunicação com Core Service. Status: " + e.getStatusCode()));
                 });
     }
 
@@ -81,7 +91,8 @@ public class CoreServiceClient { // Nome da classe ajustado
 
                 // 1. Tratamento específico para 404 (Endpoint não encontrado no Core)
                 .onStatus(HttpStatus.NOT_FOUND::equals,
-                        response -> Mono.error(new RuntimeException("Core Service URL Not Found (404). Endpoint /signup não encontrado.")))
+                        response -> Mono.error(new RuntimeException(
+                                "Core Service URL Not Found (404). Endpoint /signup não encontrado.")))
 
                 // 2. Tratamento do erro 400 (Bad Request) - E-mail duplicado, por exemplo
                 // O Core lança 400 com a mensagem de erro (do IllegalArgumentException)
@@ -99,12 +110,63 @@ public class CoreServiceClient { // Nome da classe ajustado
 
                 // 4. Tratamento de outros erros de comunicação (5xx)
                 .onErrorResume(WebClientResponseException.class, e -> {
-                    // Propaga erros de Bad Request ou Not Found, ou lança erro genérico para outros 5xx
+                    // Propaga erros de Bad Request ou Not Found, ou lança erro genérico para outros
+                    // 5xx
                     if (e.getStatusCode() == HttpStatus.BAD_REQUEST || e.getStatusCode() == HttpStatus.NOT_FOUND) {
                         return Mono.error(e); // Propaga o erro do Core
                     }
                     System.err.println("Erro ao chamar Core Service (Signup): " + e.getMessage());
-                    return Mono.error(new RuntimeException("Erro interno de comunicação com Core Service. Status: " + e.getStatusCode()));
+                    return Mono.error(new RuntimeException(
+                            "Erro interno de comunicação com Core Service. Status: " + e.getStatusCode()));
                 });
     }
+
+    public Mono<PasswordTokenResetResponseDTO> internalRequestPasswordReset(PasswordTokenResetRequestDTO request) {
+        return coreWebClient.post()
+                .uri("/api/v1/internal/auth/password/request") // ✅ mantém o mesmo endpoint
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(PasswordTokenResetResponseDTO.class) // ✅ lê o JSON retornado do Core
+                .doOnNext(response -> System.out
+                        .println("DEBUG BFF: Token recebido do Core = " + response.getResetToken()))
+                .onErrorResume(WebClientResponseException.class, e -> {
+                    System.err.println("Erro ao chamar Core: " + e.getMessage());
+                    return Mono.error(e);
+                });
+    }
+
+    /**
+     * Chama o endpoint interno do Core Service para completar o reset de senha
+     * (token + nova senha).
+     * 
+     * @param request DTO com token e nova senha.
+     * @return Mono<Void> se a operação for bem-sucedida.
+     */
+    public Mono<PasswordResetResponseDTO> internalCompletePasswordReset(PasswordResetRequestDTO request) {
+        return coreWebClient.post()
+                .uri("/api/v1/internal/auth/password/reset")
+                .bodyValue(request)
+                .retrieve()
+                // Converte a resposta do Core diretamente para o DTO
+                .bodyToMono(PasswordResetResponseDTO.class)
+
+                // Tratamento do erro 400 (Bad Request) - Token inválido/expirado, senha fraca
+                .onErrorResume(WebClientResponseException.class, e -> {
+                    if (e.getStatusCode() == HttpStatus.BAD_REQUEST) {
+                        // Propaga o erro com a mensagem do Core
+                        return Mono.error(new WebClientResponseException(
+                                HttpStatus.BAD_REQUEST.value(),
+                                e.getMessage(),
+                                e.getHeaders(),
+                                null,
+                                null));
+                    }
+                    // Trata outros erros (404, 5xx)
+                    System.err.println("Erro inesperado ao completar reset de senha no Core. Status: "
+                            + e.getStatusCode() + " | Mensagem: " + e.getMessage());
+                    return Mono.error(new RuntimeException(
+                            "Erro interno de comunicação com Core Service. Status: " + e.getStatusCode()));
+                });
+    }
+
 }

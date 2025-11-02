@@ -2,11 +2,18 @@ package com.connectrh.bff.controller;
 
 import com.connectrh.bff.dto.request.CreateUserRequest;
 import com.connectrh.bff.dto.request.LoginRequest;
+import com.connectrh.bff.dto.request.PasswordResetRequestDTO;
+import com.connectrh.bff.dto.request.PasswordTokenResetRequestDTO;
 import com.connectrh.bff.dto.response.AuthResponse;
 import com.connectrh.bff.dto.response.CoreAuthResponse;
+import com.connectrh.bff.dto.response.PasswordResetResponseDTO;
+import com.connectrh.bff.dto.response.PasswordTokenResetResponseDTO;
 import com.connectrh.bff.dto.response.UserCreateResponse;
 import com.connectrh.bff.service.CoreServiceClient;
 import com.connectrh.bff.util.JwtUtil;
+
+import jakarta.validation.Valid;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,7 +25,8 @@ import reactor.core.publisher.Mono;
 
 /**
  * Controller de Autenticação do BFF.
- * Responsável por receber a requisição de login do Frontend, delegar a validação
+ * Responsável por receber a requisição de login do Frontend, delegar a
+ * validação
  * ao Core Service e gerar o JWT para o Frontend.
  */
 @RestController
@@ -86,7 +94,8 @@ public class AuthController {
                     if (e.getStatusCode() == HttpStatus.BAD_REQUEST) {
                         // Retorna a mensagem de erro que o Core enviou no body do 400
                         return Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null));
-                        // Nota: Idealmente, o body conteria uma mensagem de erro, mas para simplificar, retorna null.
+                        // Nota: Idealmente, o body conteria uma mensagem de erro, mas para simplificar,
+                        // retorna null.
 
                     }
 
@@ -95,10 +104,53 @@ public class AuthController {
                         return Mono.just(ResponseEntity.status(e.getStatusCode()).body(null));
                     }
                 })
-                // Se houver exceções não-WebClient (ex: validação interna), use onErrorResume(Exception.class, ...)
+                // Se houver exceções não-WebClient (ex: validação interna), use
+                // onErrorResume(Exception.class, ...)
                 .onErrorResume(e -> {
                     System.err.println("Erro inesperado no BFF ao registrar: " + e.getMessage());
                     return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null));
                 });
     }
+
+    /**
+     * Endpoint para solicitar o envio do token de redefinição de senha.
+     * Roteia para o Core Service.
+     * 
+     * @param request DTO contendo o email.
+     * @return Resposta vazia (204 No Content) ou erro 400 (se email não existir).
+     */
+    @PostMapping("/password-reset/request")
+    public Mono<ResponseEntity<PasswordTokenResetResponseDTO>> requestPasswordReset(
+            @Valid @RequestBody PasswordTokenResetRequestDTO request) {
+
+        return coreServiceClient.internalRequestPasswordReset(request)
+                .map(ResponseEntity::ok) // método de referência, mais limpo
+                .onErrorResume(WebClientResponseException.class, e -> {
+                    System.err.println("Erro ao solicitar reset de senha: " + e.getMessage());
+                    return Mono.just(ResponseEntity.status(e.getStatusCode()).body(null));
+                });
+    }
+
+    @PostMapping("/password-reset/complete")
+    public Mono<ResponseEntity<PasswordResetResponseDTO>> completePasswordReset(
+            @RequestBody PasswordResetRequestDTO request) {
+
+        return coreServiceClient.internalCompletePasswordReset(request)
+                // Sucesso: retorna 200 OK com o DTO recebido do Core
+                .map(responseDto -> ResponseEntity.ok(responseDto))
+                // Captura erros de comunicação
+                .onErrorResume(WebClientResponseException.class, e -> {
+                    if (e.getStatusCode() == HttpStatus.BAD_REQUEST) {
+                        // Erro 400: apenas propaga a mensagem recebida do Core
+                        return Mono.just(ResponseEntity
+                                .status(HttpStatus.BAD_REQUEST)
+                                .body(new PasswordResetResponseDTO(null, e.getMessage())));
+                    }
+                    // Outros erros: 500 Internal Server Error
+                    return Mono.just(ResponseEntity
+                            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                            .body(new PasswordResetResponseDTO(null, "Erro interno ao comunicar com o Core Service")));
+                });
+    }
+
 }

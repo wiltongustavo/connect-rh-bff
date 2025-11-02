@@ -18,6 +18,8 @@
         <java.version>17</java.version>
         <lombok.version>1.18.30</lombok.version>
         <jjwt.version>0.12.5</jjwt.version> <!-- Versão atual e segura do JJWT -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <redis.version>1.3.5.RELEASE</redis.version>
     </properties>
 
     <dependencies>
